@@ -29,7 +29,7 @@ use package_source::PkgSrc;
 use workspace::pkg_parent_workspaces;
 use path_util::{installed_library_in_workspace, U_RWX, rust_path, system_library, target_build_dir};
 use messages::error;
-use conditions::nonexistent_package::cond;
+use extra::treemap::TreeMap;
 
 pub use target::{OutputType, Main, Lib, Bench, Test, JustOne, lib_name_of, lib_crate_filename};
 use workcache_support::{digest_file_with_date, digest_only_date};
@@ -170,6 +170,7 @@ pub fn compile_input(context: &BuildContext,
                      pkg_id: &PkgId,
                      in_file: &Path,
                      workspace: &Path,
+                     deps: &mut DepMap,
                      flags: &[~str],
                      cfgs: &[~str],
                      opt: bool,
@@ -262,7 +263,7 @@ pub fn compile_input(context: &BuildContext,
     let mut crate = driver::phase_1_parse_input(sess, cfg.clone(), &input);
     crate = driver::phase_2_configure_and_expand(sess, cfg.clone(), crate);
 
-    find_and_install_dependencies(context, pkg_id, sess, exec, crate,
+    find_and_install_dependencies(context, pkg_id, in_file, sess, exec, crate, deps,
                                   |p| {
                                       debug!("a dependency: %s", p.to_str());
                                       // Pass the directory containing a dependency
@@ -326,6 +327,7 @@ pub fn compile_input(context: &BuildContext,
 // If crate_opt is present, then finish compilation. If it's None, then
 // call compile_upto and return the crate
 // also, too many arguments
+// Returns list of discovered dependencies
 pub fn compile_crate_from_input(input: &Path,
                                 exec: &mut workcache::Exec,
                                 stop_before: StopBefore,
@@ -386,115 +388,127 @@ pub fn exe_suffix() -> ~str { ~"" }
 pub fn compile_crate(ctxt: &BuildContext,
                      exec: &mut workcache::Exec,
                      pkg_id: &PkgId,
-                     crate: &Path, workspace: &Path,
-                     flags: &[~str], cfgs: &[~str], opt: bool,
+                     crate: &Path,
+                     workspace: &Path,
+                     deps: &mut DepMap,
+                     flags: &[~str],
+                     cfgs: &[~str],
+                     opt: bool,
                      what: OutputType) -> Option<Path> {
     debug!("compile_crate: crate=%s, workspace=%s", crate.to_str(), workspace.to_str());
     debug!("compile_crate: short_name = %s, flags =...", pkg_id.to_str());
     for fl in flags.iter() {
         debug!("+++ %s", *fl);
     }
-    compile_input(ctxt, exec, pkg_id, crate, workspace, flags, cfgs, opt, what)
+    compile_input(ctxt, exec, pkg_id, crate, workspace, deps, flags, cfgs, opt, what)
 }
 
 struct ViewItemVisitor<'self> {
     context: &'self BuildContext,
     parent: &'self PkgId,
+    parent_crate: &'self Path,
     sess: session::Session,
     exec: &'self mut workcache::Exec,
     c: &'self ast::Crate,
     save: &'self fn(Path),
+    deps: &'self mut DepMap
 }
 
 impl<'self> Visitor<()> for ViewItemVisitor<'self> {
     fn visit_view_item(&mut self, vi: &ast::view_item, env: ()) {
-        debug!("A view item!");
+
+        use conditions::nonexistent_package::cond;
+
         match vi.node {
-            // ignore metadata, I guess
-            ast::view_item_extern_mod(lib_ident, path_opt, _, _) => {
-                let lib_name = match path_opt {
-                    Some(p) => p,
-                    None => self.sess.str_of(lib_ident)
-                };
-                debug!("Finding and installing... %s", lib_name);
-                // Check standard Rust library path first
-                match system_library(&self.context.sysroot(), lib_name) {
-                    Some(ref installed_path) => {
-                        debug!("It exists: %s", installed_path.to_str());
-                        // Say that [path for c] has a discovered dependency on
-                        // installed_path
-                        // For binary files, we only hash the datestamp, not the contents.
-                        // I'm not sure what the right thing is.
-                        // Now we know that this crate has a discovered dependency on
-                        // installed_path
-                        self.exec.discover_input("binary",
-                                                 installed_path.to_str(),
-                                                 digest_only_date(installed_path));
-                    }
-                    None => {
-                        // FIXME #8711: need to parse version out of path_opt
-                        debug!("Trying to install library %s, rebuilding it",
-                               lib_name.to_str());
-                        // Try to install it
-                        let pkg_id = PkgId::new(lib_name);
-                        let workspaces = pkg_parent_workspaces(&self.context.context,
-                                                               &pkg_id);
-                        let source_workspace = if workspaces.is_empty() {
-                            error(fmt!("Couldn't find package %s \
-                                       in any of the workspaces in the RUST_PATH (%s)",
-                                       lib_name,
-                                       rust_path().map(|s| s.to_str()).connect(":")));
-                            cond.raise((pkg_id.clone(), ~"Dependency not found"))
+                // ignore metadata, I guess
+                ast::view_item_extern_mod(lib_ident, path_opt, _, _) => {
+                    let lib_name = match path_opt {
+                        Some(p) => p,
+                        None => self.sess.str_of(lib_ident)
+                    };
+                    debug!("Finding and installing... %s", lib_name);
+                    // Check standard Rust library path first
+                    match system_library(&self.context.sysroot(), lib_name) {
+                        Some(ref installed_path) => {
+                            debug!("It exists: %s", installed_path.to_str());
+                            // Say that [path for c] has a discovered dependency on
+                            // installed_path
+                            // For binary files, we only hash the datestamp, not the contents.
+                            // I'm not sure what the right thing is.
+                            // Now we know that this crate has a discovered dependency on
+                            // installed_path
+                            add_dep(self.deps, self.parent_crate.to_str(),
+                                    (~"binary", installed_path.to_str()));
+                            self.exec.discover_input("binary", installed_path.to_str(),
+                                                     digest_only_date(installed_path));
                         }
-                            else {
-                            workspaces[0]
-                        };
-                        let (outputs_disc, inputs_disc) =
-                            self.context.install(PkgSrc::new(source_workspace.clone(),
-                            // Use the rust_path_hack to search for dependencies iff
-                            // we were already using it
-                            self.context.context.use_rust_path_hack,
-                                                             pkg_id),
-                                                 &JustOne(Path(
-                                    lib_crate_filename)));
-                        debug!("Installed %s, returned %? dependencies and \
-                               %? transitive dependencies",
-                               lib_name, outputs_disc.len(), inputs_disc.len());
-                        // It must have installed *something*...
-                        assert!(!outputs_disc.is_empty());
-                        let target_workspace = outputs_disc[0].pop();
-                        for dep in outputs_disc.iter() {
-                            debug!("Discovering a binary input: %s", dep.to_str());
-                            self.exec.discover_input("binary",
-                                                     dep.to_str(),
-                                                     digest_only_date(dep));
-                        }
-                        for &(ref what, ref dep) in inputs_disc.iter() {
-                            if *what == ~"file" {
-                                self.exec.discover_input(*what,
-                                                         *dep,
-                                                         digest_file_with_date(&Path(*dep)));
-                            }
-                                else if *what == ~"binary" {
-                                self.exec.discover_input(*what,
-                                                         *dep,
-                                                         digest_only_date(&Path(*dep)));
+                        None => {
+                            // FIXME #8711: need to parse version out of path_opt
+                            debug!("Trying to install library %s, rebuilding it",
+                                   lib_name.to_str());
+                            // Try to install it
+                            let pkg_id = PkgId::new(lib_name);
+                            let workspaces = pkg_parent_workspaces(&self.context.context, &pkg_id);
+                            let source_workspace = if workspaces.is_empty() {
+                                error(fmt!("Couldn't find package %s, which is needed by %s, \
+                                           in any of the workspaces in the RUST_PATH (%?)",
+                                           lib_name, self.parent.to_str(), rust_path()));
+                                cond.raise((pkg_id.clone(), ~"Dependency not found"))
                             }
                                 else {
-                                fail!("Bad kind: %s", *what);
+                                workspaces[0]
+                            };
+                            let (outputs_disc, inputs_disc) =
+                                self.context.install(PkgSrc::new(source_workspace.clone(),
+                                // Use the rust_path_hack to search for dependencies iff
+                                // we were already using it
+                                    self.context.context.use_rust_path_hack,
+                                    pkg_id),
+                                   &JustOne(Path(lib_crate_filename)));
+                            debug!("Installed %s, returned %? dependencies and \
+                                   %? transitive dependencies",
+                                   lib_name, outputs_disc.len(), inputs_disc.len());
+                            // It must have installed *something*...
+                            assert!(!outputs_disc.is_empty());
+                            let target_workspace = outputs_disc[0].pop();
+                            for dep in outputs_disc.iter() {
+                                debug!("Discovering a binary input: %s", dep.to_str());
+                                self.exec.discover_input("binary", dep.to_str(),
+                                                         digest_only_date(dep));
+                                add_dep(self.deps,
+                                        self.parent_crate.to_str(),
+                                        (~"binary", dep.to_str()));
                             }
+                            for &(ref what, ref dep) in inputs_disc.iter() {
+                                if *what == ~"file" {
+                                    add_dep(self.deps,
+                                            self.parent_crate.to_str(),
+                                            (~"file", dep.to_str()));
+                                    self.exec.discover_input(*what, *dep,
+                                                        digest_file_with_date(&Path(*dep)));
+                                }
+                                else if *what == ~"binary" {
+                                    add_dep(self.deps,
+                                            self.parent_crate.to_str(),
+                                            (~"binary", dep.to_str()));
+                                    self.exec.discover_input(*what, *dep,
+                                                        digest_only_date(&Path(*dep)));
+                                }
+                                else {
+                                    fail!("Bad kind: %s", *what);
+                                }
+                            }
+                            // Also, add an additional search path
+                            debug!("Installed %s into %s", lib_name, target_workspace.to_str());
+                            (self.save)(target_workspace);
                         }
-                        // Also, add an additional search path
-                        debug!("Installed %s into %s", lib_name, target_workspace.to_str());
-                        (self.save)(target_workspace);
                     }
                 }
+                // Ignore `use`s
+                _ => ()
             }
-            // Ignore `use`s
-            _ => ()
+            visit::walk_view_item(self, vi, env)
         }
-        visit::walk_view_item(self, vi, env)
-    }
 }
 
 /// Collect all `extern mod` directives in `c`, then
@@ -502,18 +516,22 @@ impl<'self> Visitor<()> for ViewItemVisitor<'self> {
 /// can't be found.
 pub fn find_and_install_dependencies(context: &BuildContext,
                                      parent: &PkgId,
+                                     parent_crate: &Path,
                                      sess: session::Session,
                                      exec: &mut workcache::Exec,
                                      c: &ast::Crate,
+                                     deps: &mut DepMap,
                                      save: &fn(Path)) {
     debug!("In find_and_install_dependencies...");
     let mut visitor = ViewItemVisitor {
         context: context,
         parent: parent,
+        parent_crate: parent_crate,
         sess: sess,
         exec: exec,
         c: c,
         save: save,
+        deps: deps
     };
     visit::walk_crate(&mut visitor, c, ())
 }
@@ -563,3 +581,25 @@ pub fn datestamp(p: &Path) -> Option<libc::time_t> {
     debug!("Date = %?", out);
     out.map(|t| { *t as libc::time_t })
 }
+
+pub type DepMap = TreeMap<~str, ~[(~str, ~str)]>;
+
+// NOTE: document me
+fn add_dep(deps: &mut DepMap, parent: ~str, info: (~str, ~str)) {
+    let mut done = false;
+    let info_clone = info.clone();
+    match deps.find_mut(&parent) {
+        None => { }
+        Some(v) => { done = true; (*v).push(info) }
+    };
+    if !done {
+        deps.insert(parent, ~[info_clone]);
+    }
+}
+
+pub fn add_deps(deps: &mut DepMap, parent: ~str, infos: ~[(~str, ~str)]) {
+    for info in infos.iter() {
+        add_dep(deps, parent.clone(), info.clone()); // NOTE: bad copy
+    }
+}
+

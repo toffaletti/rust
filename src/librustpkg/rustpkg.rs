@@ -188,6 +188,7 @@ pub trait CtxMethods {
     fn install(&self, src: PkgSrc, what: &WhatToBuild) -> (~[Path], ~[(~str, ~str)]);
     /// Returns a list of installed files
     fn install_no_build(&self,
+                        declared_inputs: &[Path],
                         source_workspace: &Path,
                         target_workspace: &Path,
                         id: &PkgId) -> ~[~str];
@@ -470,11 +471,55 @@ impl CtxMethods for BuildContext {
                 }
             }
             // Build it!
-            let rs_path = pkg_src.build(self, cfgs);
+
+            // Returns a map: crate_name -> (declared_input x discovered_input)
+            let (rs_path, dep_map) = pkg_src.build(self, cfgs);
+            debug!("rs_path = %s", rs_path.to_str());
+            let path = Path(rs_path);
+            for (c, deps) in dep_map.iter() {
+                // This is wrong for multiple crates, but they're not implemented yet anyway. #7240
+                // NOTE: fix this
+                let built = (if is_main(&Path(*c)) { built_executable_in_workspace(&pkgid, &path) }
+                else { built_library_in_workspace(&pkgid, &path) }).expect("FAIL");
+                let built_str = built.to_str();
+
+                // Here, we have to add an entry into workcache for the built executable(s).
+                // Each one has the same declared inputs as the crate that built it.
+                do self.workcache_context.with_prep(built_str) |prep| {
+                    prep.declare_input("file",
+                                       c.to_str(),
+                                       workcache_support::digest_file_with_date(&Path(*c)));
+                    let sub_built = built.clone();
+                    let sub_deps = deps.clone();
+                    do prep.exec |exe| {
+                        for &(ref kind, ref val) in sub_deps.iter() {
+                            if *kind == ~"file" {
+                                exe.discover_input(*kind,
+                                    *val,
+                                    workcache_support::digest_file_with_date(&Path(*val)));
+                            }
+                            else if *kind == ~"binary" {
+                                exe.discover_input(*kind,
+                                                   *val,
+                                                   digest_only_date(&Path(*val)));
+                            }
+                            else {
+                                // NOTE fix
+                                fail!("bad kind");
+                            }
+                        }
+                        exe.discover_output("binary",
+                                            sub_built.to_str(),
+                                            digest_only_date(&sub_built));
+                    }
+                }
+            };
             Path(rs_path)
         }
         else {
             // Just return the source workspace
+
+            // NOTE: workcache stuff here? Should probably be left to the package script
             workspace.clone()
         }
     }
@@ -533,7 +578,8 @@ impl CtxMethods for BuildContext {
         };
         debug!("install: destination workspace = %s, id = %s, installing to %s",
                destination_workspace, id.to_str(), actual_workspace.to_str());
-        let result = self.install_no_build(&Path(destination_workspace),
+        let result = self.install_no_build(installed_files,
+                                           &Path(destination_workspace),
                                            &actual_workspace,
                                            &id).map(|s| Path(*s));
         debug!("install: id = %s, about to call discover_outputs, %?",
@@ -545,6 +591,7 @@ impl CtxMethods for BuildContext {
 
     // again, working around lack of Encodable for Path
     fn install_no_build(&self,
+                        build_inputs: &[Path],
                         source_workspace: &Path,
                         target_workspace: &Path,
                         id: &PkgId) -> ~[~str] {
@@ -562,23 +609,35 @@ impl CtxMethods for BuildContext {
                maybe_executable, maybe_library);
 
         do self.workcache_context.with_prep(id.install_tag()) |prep| {
-            for ee in maybe_executable.iter() {
-                prep.declare_input("binary",
-                                   ee.to_str(),
-                                   workcache_support::digest_only_date(ee));
-            }
-            for ll in maybe_library.iter() {
-                prep.declare_input("binary",
-                                   ll.to_str(),
-                                   workcache_support::digest_only_date(ll));
-            }
             let subex = maybe_executable.clone();
             let sublib = maybe_library.clone();
             let sub_target_ex = target_exec.clone();
             let sub_target_lib = target_lib.clone();
+            let sub_build_inputs = build_inputs.to_owned();
 
             do prep.exec |exe_thing| {
+
                 let mut outputs = ~[];
+
+
+// Declare all the *inputs* to the declared input too, as inputs
+            for ee in subex.iter() {
+                exe_thing.discover_input("binary",
+                                   ee.to_str(),
+                                   workcache_support::digest_only_date(ee));
+            }
+            for ll in sublib.iter() {
+                exe_thing.discover_input("binary",
+                                   ll.to_str(),
+                                   workcache_support::digest_only_date(ll));
+            }
+
+                for xx in sub_build_inputs.iter() {
+                    exe_thing.discover_input("file",
+                                        xx.to_str(),
+                                        workcache_support::digest_file_with_date(xx));
+                }
+
 
                 for exec in subex.iter() {
                     debug!("Copying: %s -> %s", exec.to_str(), sub_target_ex.to_str());

@@ -993,7 +993,7 @@ fn no_rebuilding_dep() {
 }
 
 #[test]
-#[ignore]
+// #[ignore]
 fn do_rebuild_dep_dates_change() {
     let p_id = PkgId::new("foo");
     let dep_id = PkgId::new("bar");
@@ -1010,7 +1010,7 @@ fn do_rebuild_dep_dates_change() {
 }
 
 #[test]
-#[ignore]
+// #[ignore]
 fn do_rebuild_dep_only_contents_change() {
     let p_id = PkgId::new("foo");
     let dep_id = PkgId::new("bar");
@@ -1818,7 +1818,7 @@ fn test_rustpkg_test_output() {
 }
 
 #[test]
-#[ignore(reason = "See issue #9441")]
+#[ignore(cfg(unix, not(target_os="macos")), reason = "See issue #9441")]
 fn test_rebuild_when_needed() {
     let foo_id = PkgId::new("foo");
     let foo_workspace = create_local_package(&foo_id);

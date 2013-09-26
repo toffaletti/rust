@@ -19,11 +19,12 @@ use crate::Crate;
 use messages::*;
 use source_control::{git_clone, git_clone_general};
 use path_util::{find_dir_using_rust_path_hack, default_workspace, make_dir_rwx_recursive};
-use util::compile_crate;
+use util::{compile_crate, DepMap};
 use workspace::is_workspace;
 use workcache_support;
 use workcache_support::crate_tag;
 use extra::workcache;
+use extra::treemap::TreeMap;
 
 // An enumeration of the unpacked source of a package workspace.
 // This contains a list of files found in the source workspace.
@@ -293,6 +294,7 @@ impl PkgSrc {
     fn build_crates(&self,
                     ctx: &BuildContext,
                     destination_dir: &Path,
+                    deps: &mut DepMap,
                     crates: &[Crate],
                     cfgs: &[~str],
                     what: OutputType) {
@@ -313,19 +315,22 @@ impl PkgSrc {
                 let id = self.id.clone();
                 let sub_dir = destination_dir.clone();
                 let sub_flags = crate.flags.clone();
+                let sub_deps = deps.clone();
                 do prep.exec |exec| {
                     let result = compile_crate(&subcx,
                                                exec,
                                                &id,
                                                &subpath,
                                                &sub_dir,
+                                               &mut (sub_deps.clone()),
                                                sub_flags,
                                                subcfgs,
                                                false,
                                                what).to_str();
-                    debug!("Result of compiling %s was %s", subpath_str, result);
+                    debug!("Result of compiling %s was %?", subpath_str, result);
                     result
                 }
+//                add_deps(deps, path.to_str(), new_deps);
             };
         }
     }
@@ -351,8 +356,11 @@ impl PkgSrc {
     // Encodable.
     pub fn build(&self,
                  build_context: &BuildContext,
-                 cfgs: ~[~str]) -> ~str {
+       // DepMap is a map from str (crate name) to (kind, name) <-- path of discovered depemndencies
+                 cfgs: ~[~str]) -> (~str, DepMap) {
         use conditions::not_a_workspace::cond;
+
+        let mut deps = TreeMap::new();
 
         // Determine the destination workspace (which depends on whether
         // we're using the rust_path_hack)
@@ -379,14 +387,14 @@ impl PkgSrc {
         let benchs = self.benchs.clone();
         debug!("Building libs in %s, destination = %s",
                destination_workspace.to_str(), destination_workspace.to_str());
-        self.build_crates(build_context, &destination_workspace, libs, cfgs, Lib);
+        self.build_crates(build_context, &destination_workspace, &mut deps, libs, cfgs, Lib);
         debug!("Building mains");
-        self.build_crates(build_context, &destination_workspace, mains, cfgs, Main);
+        self.build_crates(build_context, &destination_workspace, &mut deps, mains, cfgs, Main);
         debug!("Building tests");
-        self.build_crates(build_context, &destination_workspace, tests, cfgs, Test);
+        self.build_crates(build_context, &destination_workspace, &mut deps, tests, cfgs, Test);
         debug!("Building benches");
-        self.build_crates(build_context, &destination_workspace, benchs, cfgs, Bench);
-        destination_workspace.to_str()
+        self.build_crates(build_context, &destination_workspace, &mut deps, benchs, cfgs, Bench);
+        (destination_workspace.to_str(), deps)
     }
 
     /// Debugging
