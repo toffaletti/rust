@@ -44,6 +44,7 @@ use str;
 use to_str;
 use unstable::finally::Finally;
 use vec;
+use fmt;
 
 pub use libc::fclose;
 pub use os::consts::*;
@@ -1396,6 +1397,12 @@ impl to_str::ToStr for MapError {
     }
 }
 
+impl fmt::Default for MemoryMap {
+    fn fmt(value: &MemoryMap, f: &mut fmt::Formatter) {
+        write!(f.buf, "MemoryMap({}, {})", value.data, value.len);
+    }
+}
+
 #[cfg(unix)]
 impl MemoryMap {
     pub fn new(min_len: uint, options: &[MapOption]) -> Result<MemoryMap, MapError> {
@@ -1991,6 +1998,22 @@ mod tests {
         let path = Path("");
         assert!(!os::mkdir_recursive(&path, (S_IRUSR | S_IWUSR | S_IXUSR) as i32));
     }
+
+    #[test]
+    fn memory_map_fmt() {
+        use result::{Ok, Err};
+
+        let chunk = match os::MemoryMap::new(16, [
+            os::MapReadable,
+            os::MapWritable
+        ]) {
+            Ok(chunk) => chunk,
+            Err(msg) => fail!(msg.to_str())
+        };
+
+        assert!(format!("{}", chunk));
+    }
+
 
     #[test]
     fn memory_map_rw() {
