@@ -2050,7 +2050,7 @@ mod tests {
             }
             fd
         };
-        let chunk = match MemoryMap::new(size / 2, ~[
+        let chunk = match MemoryMap::new(size / 2, [
             MapReadable,
             MapWritable,
             MapFd(fd),
