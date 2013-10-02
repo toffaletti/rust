@@ -10,13 +10,13 @@
 
 //! A mapping type stored in a vector [(Key, Value)]
 
-extern mod extra;
+//extern mod extra;
 
 use std::vec;
 use std::util::replace;
 use std::cast;
 
-// TODO: FlatSet<K>
+// add FlatSet<K>
 
 #[inline]
 fn lower_bound_index<K: TotalOrd, V>(a: &[(K,V)], key: &K) -> uint {
@@ -39,6 +39,8 @@ fn lower_bound_index<K: TotalOrd, V>(a: &[(K,V)], key: &K) -> uint {
     first
 }
 
+/// A flat map implementation which stores key value pairs as an array of
+/// tuples in a sorted vector ~[(K, V)].
 pub struct FlatMap<K, V> {
     priv data: ~[(K, V)],
 }
@@ -108,7 +110,7 @@ impl<K: TotalOrd, V> FlatMap<K, V> {
     pub fn get<'a>(&'a self, k: &K) -> &'a V {
         match self.find(k) {
             Some(v) => v,
-            None => fail!("No entry found for key: %?", k),
+            None => fail2!("No entry found for key: {:?}", k),
         }
     }
 
@@ -117,7 +119,7 @@ impl<K: TotalOrd, V> FlatMap<K, V> {
     pub fn get_mut<'a>(&'a mut self, k: &K) -> &'a mut V {
         match self.find_mut(k) {
             Some(v) => v,
-            None => fail!("No entry found for key: %?", k),
+            None => fail2!("No entry found for key: {:?}", k),
         }
     }
 
@@ -269,6 +271,7 @@ impl<K: TotalOrd, V> MutableMap<K, V> for FlatMap<K, V> {
     }
 }
 
+/// FlatMap iterator
 pub struct FlatMapIterator<'self, K, V> {
     priv iter: vec::VecIterator<'self, (K, V)>,
 }
@@ -288,6 +291,7 @@ impl<'self, K, V> Iterator<(&'self K, &'self V)> for FlatMapIterator<'self, K, V
     }
 }
 
+/// FlatMap mutable values iterator
 pub struct FlatMapMutIterator<'self, K, V> {
     priv iter: vec::VecMutIterator<'self, (K, V)>,
 }
@@ -307,6 +311,7 @@ impl<'self, K, V> Iterator<(&'self K, &'self mut V)> for FlatMapMutIterator<'sel
     }
 }
 
+/// FlatMap move iterator
 pub struct FlatMapMoveIterator<K, V> {
     priv iter: vec::MoveRevIterator<(K, V)>,
 }
@@ -357,7 +362,7 @@ mod test {
         m.insert(1, 3);
         match m.find(&1) {
             Some(v) => assert_eq!(3, *v),
-            None => fail!("No entry found for key: 1"),
+            None => fail2!("No entry found for key: 1"),
         }
 
         for (k, v) in m.iter() {
@@ -406,7 +411,7 @@ mod test_map {
         assert!(m.insert(5, 14));
         let new = 100;
         match m.find_mut(&5) {
-            None => fail!(), Some(x) => *x = new
+            None => fail2!(), Some(x) => *x = new
         }
         assert_eq!(m.find(&5), Some(&new));
     }
@@ -523,7 +528,7 @@ mod test_map {
         assert!(m.find(&1).is_none());
         m.insert(1, 2);
         match m.find(&1) {
-            None => fail!(),
+            None => fail2!(),
             Some(v) => assert!(*v == 2)
         }
     }
@@ -617,10 +622,10 @@ macro_rules! bench_insert {
 
 #[cfg(test)]
 mod bench {
-    use extra::test::BenchHarness;
+    use test::BenchHarness;
     use super::FlatMap;
     use std::hashmap::HashMap;
-    use extra::treemap::TreeMap;
+    use treemap::TreeMap;
     use std::rand;
     use std::rand::Rng;
 
