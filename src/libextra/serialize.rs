@@ -26,6 +26,7 @@ use ringbuf::RingBuf;
 use container::Deque;
 use dlist::DList;
 use treemap::{TreeMap, TreeSet};
+use flatmap::FlatMap;
 
 pub trait Encoder {
     // Primitive types:
@@ -882,6 +883,41 @@ impl<
                 set.insert(d.read_seq_elt(i, |d| Decodable::decode(d)));
             }
             set
+        }
+    }
+}
+
+impl<
+    E: Encoder,
+    K: Encodable<E> + Eq + TotalOrd,
+    V: Encodable<E> + Eq
+> Encodable<E> for FlatMap<K, V> {
+    fn encode(&self, e: &mut E) {
+        do e.emit_map(self.len()) |e| {
+            let mut i = 0;
+            for (key, val) in self.iter() {
+                e.emit_map_elt_key(i, |e| key.encode(e));
+                e.emit_map_elt_val(i, |e| val.encode(e));
+                i += 1;
+            }
+        }
+    }
+}
+
+impl<
+    D: Decoder,
+    K: Decodable<D> + Eq + TotalOrd,
+    V: Decodable<D> + Eq
+> Decodable<D> for FlatMap<K, V> {
+    fn decode(d: &mut D) -> FlatMap<K, V> {
+        do d.read_map |d, len| {
+            let mut map = FlatMap::new();
+            for i in range(0u, len) {
+                let key = d.read_map_elt_key(i, |d| Decodable::decode(d));
+                let val = d.read_map_elt_val(i, |d| Decodable::decode(d));
+                map.insert(key, val);
+            }
+            map
         }
     }
 }

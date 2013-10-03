@@ -29,6 +29,7 @@ use std::to_str;
 use serialize::Encodable;
 use serialize;
 use treemap::TreeMap;
+use flatmap::FlatMap;
 
 /// Represents a json value
 #[deriving(Clone, Eq)]
@@ -42,7 +43,7 @@ pub enum Json {
 }
 
 pub type List = ~[Json];
-pub type Object = TreeMap<~str, Json>;
+pub type Object = FlatMap<~str, Json>;
 
 #[deriving(Eq)]
 /// If an error occurs while parsing some JSON, this is the structure which is
@@ -806,7 +807,7 @@ impl<T : Iterator<char>> Parser<T> {
         self.bump();
         self.parse_whitespace();
 
-        let mut values = ~TreeMap::new();
+        let mut values = ~FlatMap::new();
 
         if self.ch == '}' {
           self.bump();
@@ -1276,7 +1277,7 @@ impl<A:ToJson> ToJson for ~[A] {
 
 impl<A:ToJson> ToJson for TreeMap<~str, A> {
     fn to_json(&self) -> Json {
-        let mut d = TreeMap::new();
+        let mut d = FlatMap::new();
         for (key, value) in self.iter() {
             d.insert((*key).clone(), value.to_json());
         }
@@ -1286,7 +1287,17 @@ impl<A:ToJson> ToJson for TreeMap<~str, A> {
 
 impl<A:ToJson> ToJson for HashMap<~str, A> {
     fn to_json(&self) -> Json {
-        let mut d = TreeMap::new();
+        let mut d = FlatMap::new();
+        for (key, value) in self.iter() {
+            d.insert((*key).clone(), value.to_json());
+        }
+        Object(~d)
+    }
+}
+
+impl<A:ToJson> ToJson for FlatMap<~str, A> {
+    fn to_json(&self) -> Json {
+        let mut d = FlatMap::new();
         for (key, value) in self.iter() {
             d.insert((*key).clone(), value.to_json());
         }
@@ -1324,7 +1335,7 @@ mod tests {
     use std::io;
 
     use serialize::Decodable;
-    use treemap::TreeMap;
+    use flatmap::FlatMap;
 
     #[deriving(Eq, Encodable, Decodable)]
     enum Animal {
@@ -1345,7 +1356,7 @@ mod tests {
     }
 
     fn mk_object(items: &[(~str, Json)]) -> Json {
-        let mut d = ~TreeMap::new();
+        let mut d = ~FlatMap::new();
 
         for item in items.iter() {
             match *item {
@@ -1930,7 +1941,7 @@ mod tests {
     fn test_decode_map() {
         let s = ~"{\"a\": \"Dog\", \"b\": {\"variant\":\"Frog\",\"fields\":[\"Henry\", 349]}}";
         let mut decoder = Decoder(from_str(s).unwrap());
-        let mut map: TreeMap<~str, Animal> = Decodable::decode(&mut decoder);
+        let mut map: FlatMap<~str, Animal> = Decodable::decode(&mut decoder);
 
         assert_eq!(map.pop(&~"a"), Some(Dog));
         assert_eq!(map.pop(&~"b"), Some(Frog(~"Henry", 349)));

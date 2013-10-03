@@ -26,7 +26,7 @@ use stats::Stats;
 use stats;
 use term;
 use time::precise_time_ns;
-use treemap::TreeMap;
+use flatmap::FlatMap;
 
 use std::clone::Clone;
 use std::comm::{stream, SharedChan, GenericPort, GenericChan};
@@ -99,7 +99,7 @@ pub struct Metric {
 }
 
 #[deriving(Eq)]
-pub struct MetricMap(TreeMap<~str,Metric>);
+pub struct MetricMap(FlatMap<~str,Metric>);
 
 impl Clone for MetricMap {
     fn clone(&self) -> MetricMap {
@@ -117,7 +117,7 @@ pub enum MetricChange {
     Regression(f64)
 }
 
-pub type MetricDiff = TreeMap<~str,MetricChange>;
+pub type MetricDiff = FlatMap<~str,MetricChange>;
 
 // The default console test runner. It accepts the command line
 // arguments and a vector of test_descs.
@@ -877,7 +877,7 @@ fn calc_result(desc: &TestDesc, task_succeeded: bool) -> TestResult {
 
 impl ToJson for Metric {
     fn to_json(&self) -> json::Json {
-        let mut map = ~TreeMap::new();
+        let mut map = ~FlatMap::new();
         map.insert(~"value", json::Number(self.value as f64));
         map.insert(~"noise", json::Number(self.noise as f64));
         json::Object(map)
@@ -887,7 +887,7 @@ impl ToJson for Metric {
 impl MetricMap {
 
     pub fn new() -> MetricMap {
-        MetricMap(TreeMap::new())
+        MetricMap(FlatMap::new())
     }
 
     /// Load MetricDiff from a file.
@@ -912,7 +912,7 @@ impl MetricMap {
     /// map.
     pub fn compare_to_old(&self, old: &MetricMap,
                           noise_pct: Option<f64>) -> MetricDiff {
-        let mut diff : MetricDiff = TreeMap::new();
+        let mut diff : MetricDiff = FlatMap::new();
         for (k, vold) in old.iter() {
             let r = match self.find(k) {
                 None => MetricRemoved,

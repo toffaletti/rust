@@ -41,23 +41,24 @@ fn lower_bound_index<K: TotalOrd, V>(a: &[(K,V)], key: &K) -> uint {
 
 /// A flat map implementation which stores key value pairs as an array of
 /// tuples in a sorted vector ~[(K, V)].
+#[deriving(Clone)]
 pub struct FlatMap<K, V> {
     priv data: ~[(K, V)],
 }
 
 impl<K: TotalOrd, V> FlatMap<K, V> {
     /// Creates an empty FlatMap.
-    fn new() -> FlatMap<K, V> {
+    pub fn new() -> FlatMap<K, V> {
         FlatMap::with_capacity(2)
     }
 
     /// Create an empty FlatMap with space for at least `n` elements.
-    fn with_capacity(capacity: uint) -> FlatMap<K, V> {
+    pub fn with_capacity(capacity: uint) -> FlatMap<K, V> {
         FlatMap{data: vec::with_capacity(capacity)}
     }
 
     /// Return the capacity of the underlying vector.
-    fn capacity(&self) -> uint {
+    pub fn capacity(&self) -> uint {
         self.data.capacity()
     }
 
@@ -144,7 +145,7 @@ impl<K: TotalOrd, V> FlatMap<K, V> {
     /// An iterator visiting all key-value pairs in order,
     /// with mutable references to the values.
     /// Iterator element type is (&'a K, &'a mut V).
-    fn mut_iter<'a>(&'a mut self) -> FlatMapMutIterator<'a, K, V> {
+    pub fn mut_iter<'a>(&'a mut self) -> FlatMapMutIterator<'a, K, V> {
         FlatMapMutIterator{iter: self.data.mut_iter()}
     }
 
@@ -192,17 +193,36 @@ impl<K: TotalOrd, V> Default for FlatMap<K, V> {
     fn default() -> FlatMap<K, V> { FlatMap::new() }
 }
 
-impl<K: TotalOrd, V: Eq> Eq for FlatMap<K, V> {
+impl<K: Eq + TotalOrd, V: Eq> Eq for FlatMap<K, V> {
     fn eq(&self, other: &FlatMap<K, V>) -> bool {
-        if self.len() != other.len() { return false; }
-
-        do self.iter().all |(key, value)| {
-            match other.find(key) {
-                None => false,
-                Some(v) => value == v
-            }
-        }
+        self.len() == other.len() &&
+            self.iter().zip(other.iter()).all(|(a, b)| a == b)
     }
+}
+
+// Lexicographical comparison
+fn lt<K: Ord + TotalOrd, V: Ord>(a: &FlatMap<K, V>,
+                                 b: &FlatMap<K, V>) -> bool {
+    // the Zip iterator is as long as the shortest of a and b.
+    for ((key_a, value_a), (key_b, value_b)) in a.iter().zip(b.iter()) {
+        if *key_a < *key_b { return true; }
+        if *key_a > *key_b { return false; }
+        if *value_a < *value_b { return true; }
+        if *value_a > *value_b { return false; }
+    }
+
+    a.len() < b.len()
+}
+
+impl<K: Ord + TotalOrd, V: Ord> Ord for FlatMap<K, V> {
+    #[inline]
+    fn lt(&self, other: &FlatMap<K, V>) -> bool { lt(self, other) }
+    #[inline]
+    fn le(&self, other: &FlatMap<K, V>) -> bool { !lt(other, self) }
+    #[inline]
+    fn ge(&self, other: &FlatMap<K, V>) -> bool { !lt(self, other) }
+    #[inline]
+    fn gt(&self, other: &FlatMap<K, V>) -> bool { lt(other, self) }
 }
 
 impl<K: TotalOrd, V> Map<K, V> for FlatMap<K, V> {
