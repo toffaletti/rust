@@ -17,7 +17,7 @@ use extra::arc::RWArc;
 use extra::tempfile::mkdtemp;
 use extra::workcache;
 use extra::workcache::{Database, Logger};
-use extra::treemap::TreeMap;
+use extra::flatmap::FlatMap;
 use extra::getopts::groups::getopts;
 use std::run::ProcessOutput;
 use installed_packages::list_installed_packages;
@@ -40,7 +40,7 @@ fn fake_ctxt(sysroot: Path, workspace: &Path) -> BuildContext {
     let context = workcache::Context::new(
         RWArc::new(Database::new(workspace.push("rustpkg_db.json"))),
         RWArc::new(Logger::new()),
-        Arc::new(TreeMap::new()));
+        Arc::new(FlatMap::new()));
     BuildContext {
         workcache_context: context,
         context: Context {
