@@ -20,7 +20,7 @@ use std::os;
 use extra::arc::{Arc,RWArc};
 use extra::workcache;
 use extra::workcache::{Database, Logger, FreshnessMap};
-use extra::treemap::TreeMap;
+use extra::flatmap::FlatMap;
 
 /// Convenience functions intended for calling from pkg.rs
 /// p is where to put the cache file for dependencies
@@ -55,8 +55,8 @@ pub fn new_workcache_context(p: &Path) -> workcache::Context {
     debug2!("Workcache database file: {}", db_file.to_str());
     let db = RWArc::new(Database::new(db_file));
     let lg = RWArc::new(Logger::new());
-    let cfg = Arc::new(TreeMap::new());
-    let mut freshness: FreshnessMap = TreeMap::new();
+    let cfg = Arc::new(FlatMap::new());
+    let mut freshness: FreshnessMap = FlatMap::new();
     // Set up freshness functions for every type of dependency rustpkg
     // knows about
     freshness.insert(~"file", file_is_fresh);
