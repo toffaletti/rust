@@ -16,7 +16,7 @@ use json::ToJson;
 use sha1::Sha1;
 use serialize::{Encoder, Encodable, Decoder, Decodable};
 use arc::{Arc,RWArc};
-use treemap::TreeMap;
+use flatmap::FlatMap;
 use std::cell::Cell;
 use std::comm::{PortOne, oneshot};
 use std::{io, os, task};
@@ -107,13 +107,13 @@ impl WorkKey {
 // FIXME #8883: The key should be a WorkKey and not a ~str.
 // This is working around some JSON weirdness.
 #[deriving(Clone, Eq, Encodable, Decodable)]
-struct WorkMap(TreeMap<~str, KindMap>);
+struct WorkMap(FlatMap<~str, KindMap>);
 
 #[deriving(Clone, Eq, Encodable, Decodable)]
-struct KindMap(TreeMap<~str, ~str>);
+struct KindMap(FlatMap<~str, ~str>);
 
 impl WorkMap {
-    fn new() -> WorkMap { WorkMap(TreeMap::new()) }
+    fn new() -> WorkMap { WorkMap(FlatMap::new()) }
 
     fn insert_work_key(&mut self, k: WorkKey, val: ~str) {
         let WorkKey { kind, name } = k;
@@ -121,7 +121,7 @@ impl WorkMap {
             Some(&KindMap(ref mut m)) => { m.insert(kind, val); return; }
             None => ()
         }
-        let mut new_map = TreeMap::new();
+        let mut new_map = FlatMap::new();
         new_map.insert(kind, val);
         self.insert(name, KindMap(new_map));
     }
@@ -129,7 +129,7 @@ impl WorkMap {
 
 pub struct Database {
     db_filename: Path,
-    db_cache: TreeMap<~str, ~str>,
+    db_cache: FlatMap<~str, ~str>,
     db_dirty: bool
 }
 
@@ -138,7 +138,7 @@ impl Database {
     pub fn new(p: Path) -> Database {
         let mut rslt = Database {
             db_filename: p,
-            db_cache: TreeMap::new(),
+            db_cache: FlatMap::new(),
             db_dirty: false
         };
         if os::path_exists(&rslt.db_filename) {
@@ -223,7 +223,7 @@ impl Logger {
     }
 }
 
-pub type FreshnessMap = TreeMap<~str,extern fn(&str,&str)->bool>;
+pub type FreshnessMap = FlatMap<~str,extern fn(&str,&str)->bool>;
 
 #[deriving(Clone)]
 pub struct Context {
@@ -290,7 +290,7 @@ impl Context {
     pub fn new(db: RWArc<Database>,
                lg: RWArc<Logger>,
                cfg: Arc<json::Object>) -> Context {
-        Context::new_with_freshness(db, lg, cfg, Arc::new(TreeMap::new()))
+        Context::new_with_freshness(db, lg, cfg, Arc::new(FlatMap::new()))
     }
 
     pub fn new_with_freshness(db: RWArc<Database>,
@@ -515,7 +515,7 @@ fn test() {
 
     let cx = Context::new(RWArc::new(Database::new(db_path)),
                           RWArc::new(Logger::new()),
-                          Arc::new(TreeMap::new()));
+                          Arc::new(FlatMap::new()));
 
     let s = do cx.with_prep("test1") |prep| {
 
