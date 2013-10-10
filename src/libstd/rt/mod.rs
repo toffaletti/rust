@@ -67,13 +67,26 @@ use rt::local::Local;
 use rt::sched::{Scheduler, Shutdown};
 use rt::sleeper_list::SleeperList;
 use rt::task::{Task, SchedTask, GreenTask, Sched};
-use rt::thread::Thread;
-use rt::work_queue::WorkQueue;
 use rt::uv::uvio::UvEventLoop;
-use unstable::atomics::{AtomicInt, SeqCst};
+use unstable::atomics::{AtomicInt, AtomicBool, SeqCst};
 use unstable::sync::UnsafeArc;
 use vec;
 use vec::{OwnedVector, MutableVector, ImmutableVector};
+
+use self::thread::Thread;
+use self::work_queue::WorkQueue;
+
+// XXX: these probably shouldn't be public...
+#[doc(hidden)]
+pub mod shouldnt_be_public {
+    pub use super::sched::Scheduler;
+    pub use super::kill::KillHandle;
+    pub use super::thread::Thread;
+    pub use super::work_queue::WorkQueue;
+    pub use super::select::SelectInner;
+    pub use super::rtio::EventLoop;
+    pub use super::select::{SelectInner, SelectPortInner};
+}
 
 /// The global (exchange) heap.
 pub mod global_heap;
@@ -298,11 +311,17 @@ fn run_(main: ~fn(), use_main_sched: bool) -> int {
     let exit_code = UnsafeArc::new(AtomicInt::new(0));
     let exit_code_clone = exit_code.clone();
 
+    // Used to sanity check that the runtime only exits once
+    let exited_already = UnsafeArc::new(AtomicBool::new(false));
+
     // When the main task exits, after all the tasks in the main
     // task tree, shut down the schedulers and set the exit code.
     let handles = Cell::new(handles);
     let on_exit: ~fn(bool) = |exit_success| {
-        assert_once_ever!("last task exiting");
+        unsafe {
+            assert!(!(*exited_already.get()).swap(true, SeqCst),
+                    "the runtime already exited");
+        }
 
         let mut handles = handles.take();
         for handle in handles.mut_iter() {

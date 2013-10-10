@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,10 +8,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// error-pattern:unexpected token: `}`
-// Issue #1200
+// xfail-fast windows uses a different test runner
 
-type t = {};
+use std::rt;
 
-fn main() {
+#[start]
+fn start(argc: int, argv: **u8) -> int {
+    do rt::start(argc, argv) {
+        println("First invocation");
+    };
+
+    do rt::start(argc, argv) {
+        println("Second invocation");
+    };
+
+    0
 }

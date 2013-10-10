@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -8,16 +8,17 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-struct cat : int { //~ ERROR trait
-  meows: uint,
-}
+// xfail-fast windows doesn't like compile-flags
+// compile-flags: --cfg foo
 
-fn cat(in_x : uint) -> cat {
-    cat {
-        meows: in_x
-    }
-}
+#[feature(macro_rules)];
+
+#[cfg(foo)]
+macro_rules! foo( () => (1) )
+
+#[cfg(not(foo))]
+macro_rules! foo( () => (2) )
 
 fn main() {
-  let nyan = cat(0u);
+    assert_eq!(foo!(), 1);
 }

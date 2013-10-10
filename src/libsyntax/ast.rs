@@ -531,9 +531,7 @@ pub enum Expr_ {
     ExprWhile(@Expr, Block),
     // FIXME #6993: change to Option<Name>
     ExprForLoop(@Pat, @Expr, Block, Option<Ident>),
-    /* Conditionless loop (can be exited with break, cont, or ret)
-       Same semantics as while(true) { body }, but typestate knows that the
-       (implicit) condition is always true. */
+    // Conditionless loop (can be exited with break, cont, or ret)
     // FIXME #6993: change to Option<Name>
     ExprLoop(Block, Option<Ident>),
     ExprMatch(@Expr, ~[Arm]),
@@ -682,11 +680,17 @@ pub enum mac_ {
     mac_invoc_tt(Path,~[token_tree],SyntaxContext),   // new macro-invocation
 }
 
+#[deriving(Clone, Eq, Encodable, Decodable, IterBytes)]
+pub enum StrStyle {
+    CookedStr,
+    RawStr(uint)
+}
+
 pub type lit = Spanned<lit_>;
 
 #[deriving(Clone, Eq, Encodable, Decodable, IterBytes)]
 pub enum lit_ {
-    lit_str(@str),
+    lit_str(@str, StrStyle),
     lit_char(u32),
     lit_int(i64, int_ty),
     lit_uint(u64, uint_ty),
@@ -864,6 +868,7 @@ pub enum asm_dialect {
 #[deriving(Clone, Eq, Encodable, Decodable, IterBytes)]
 pub struct inline_asm {
     asm: @str,
+    asm_str_style: StrStyle,
     clobbers: @str,
     inputs: ~[(@str, @Expr)],
     outputs: ~[(@str, @Expr)],
@@ -1029,7 +1034,7 @@ pub enum view_item_ {
     // optional @str: if present, this is a location (containing
     // arbitrary characters) from which to fetch the crate sources
     // For example, extern mod whatever = "github.com/mozilla/rust"
-    view_item_extern_mod(Ident, Option<@str>, ~[@MetaItem], NodeId),
+    view_item_extern_mod(Ident, Option<(@str, StrStyle)>, ~[@MetaItem], NodeId),
     view_item_use(~[@view_path]),
 }
 

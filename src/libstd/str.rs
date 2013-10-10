@@ -16,7 +16,7 @@ String manipulation
 
 Rust's string type is one of the core primitive types of the language. While
 represented by the name `str`, the name `str` is not actually a valid type in
-Rust. Each string must also be decorated with how its ownership. This means that
+Rust. Each string must also be decorated with its ownership. This means that
 there are three common kinds of strings in rust:
 
 * `~str` - This is an owned string. This type obeys all of the normal semantics
@@ -26,7 +26,7 @@ there are three common kinds of strings in rust:
 
 * `@str` - This is a managed string. Similarly to `@T`, this type can be
            implicitly copied, and each implicit copy will increment the
-           reference count to the string. This means that there is not "true
+           reference count to the string. This means that there is no "true
            owner" of the string, and the string will be deallocated when the
            reference count reaches 0.
 
@@ -105,6 +105,7 @@ use option::{None, Option, Some};
 use ptr;
 use ptr::RawPtr;
 use to_str::ToStr;
+use from_str::FromStr;
 use uint;
 use vec;
 use vec::{OwnedVector, OwnedCopyableVector, ImmutableVector, MutableVector};
@@ -204,6 +205,11 @@ impl ToStr for ~str {
     fn to_str(&self) -> ~str { self.to_owned() }
 }
 
+impl FromStr for ~str {
+    #[inline]
+    fn from_str(s: &str) -> Option<~str> { Some(s.to_owned()) }
+}
+
 impl<'self> ToStr for &'self str {
     #[inline]
     fn to_str(&self) -> ~str { self.to_owned() }
@@ -212,6 +218,11 @@ impl<'self> ToStr for &'self str {
 impl ToStr for @str {
     #[inline]
     fn to_str(&self) -> ~str { self.to_owned() }
+}
+
+impl<'self> FromStr for @str {
+    #[inline]
+    fn from_str(s: &str) -> Option<@str> { Some(s.to_managed()) }
 }
 
 /// Convert a byte to a UTF-8 string
@@ -404,7 +415,7 @@ impl<'self> Iterator<(uint, char)> for CharOffsetIterator<'self> {
                 b as uint - a as uint
             }
         };
-        self.iter.next().map_move(|ch| (offset, ch))
+        self.iter.next().map(|ch| (offset, ch))
     }
 
     #[inline]
@@ -416,7 +427,7 @@ impl<'self> Iterator<(uint, char)> for CharOffsetIterator<'self> {
 impl<'self> DoubleEndedIterator<(uint, char)> for CharOffsetIterator<'self> {
     #[inline]
     fn next_back(&mut self) -> Option<(uint, char)> {
-        self.iter.next_back().map_move(|ch| {
+        self.iter.next_back().map(|ch| {
             let offset = do self.string.as_imm_buf |a, _| {
                 do self.iter.string.as_imm_buf |b, len| {
                     b as uint - a as uint + len
@@ -2249,7 +2260,7 @@ impl<'self> StrSlice<'self> for &'self str {
         } else {
             self.matches_index_iter(needle)
                 .next()
-                .map_move(|(start, _end)| start)
+                .map(|(start, _end)| start)
         }
     }
 
@@ -2580,13 +2591,14 @@ impl Default for @str {
 #[cfg(test)]
 mod tests {
     use container::Container;
-    use option::{None, Some};
+    use option::{None, Some, Option};
     use ptr;
     use str::*;
     use vec;
     use vec::{Vector, ImmutableVector, CopyableVector};
     use cmp::{TotalOrd, Less, Equal, Greater};
     use send_str::{SendStrOwned, SendStrStatic};
+    use from_str::from_str;
 
     #[test]
     fn test_eq() {
@@ -3888,6 +3900,14 @@ mod tests {
     fn test_to_send_str() {
         assert_eq!("abcde".to_send_str(), SendStrStatic("abcde"));
         assert_eq!("abcde".to_send_str(), SendStrOwned(~"abcde"));
+    }
+
+    #[test]
+    fn test_from_str() {
+      let owned: Option<~str> = from_str(&"string");
+      assert_eq!(owned, Some(~"string"));
+      let managed: Option<@str> = from_str(&"string");
+      assert_eq!(managed, Some(@"string"));
     }
 }
 

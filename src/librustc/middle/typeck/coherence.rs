@@ -216,8 +216,8 @@ impl visit::Visitor<()> for PrivilegedScopeVisitor {
                             if trait_def_id.crate != LOCAL_CRATE {
                                 let session = self.cc.crate_context.tcx.sess;
                                 session.span_err(item.span,
-                                                 "cannot provide an extension implementation \
-                                                  for a trait not defined in this crate");
+                                        "cannot provide an extension implementation \
+                                        where both trait and type are not defined in this crate");
                             }
                         }
 
@@ -330,8 +330,8 @@ impl CoherenceChecker {
 
         let impl_poly_type = ty::lookup_item_type(tcx, impl_id);
 
-        let provided = ty::provided_trait_methods(tcx, trait_ref.def_id);
-        for trait_method in provided.iter() {
+        let prov = ty::provided_trait_methods(tcx, trait_ref.def_id);
+        for trait_method in prov.iter() {
             // Synthesize an ID.
             let new_id = tcx.sess.next_node_id();
             let new_did = local_def(new_id);

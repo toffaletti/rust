@@ -397,27 +397,17 @@ impl id_range {
     }
 }
 
-pub fn id_visitor(operation: @IdVisitingOperation, pass_through_items: bool)
-                  -> @mut Visitor<()> {
-    let visitor = @mut IdVisitor {
-        operation: operation,
-        pass_through_items: pass_through_items,
-        visited_outermost: false,
-    };
-    visitor as @mut Visitor<()>
-}
-
 pub trait IdVisitingOperation {
     fn visit_id(&self, node_id: NodeId);
 }
 
-pub struct IdVisitor {
-    operation: @IdVisitingOperation,
+pub struct IdVisitor<'self, O> {
+    operation: &'self O,
     pass_through_items: bool,
     visited_outermost: bool,
 }
 
-impl IdVisitor {
+impl<'self, O: IdVisitingOperation> IdVisitor<'self, O> {
     fn visit_generics_helper(&self, generics: &Generics) {
         for type_parameter in generics.ty_params.iter() {
             self.operation.visit_id(type_parameter.id)
@@ -428,7 +418,7 @@ impl IdVisitor {
     }
 }
 
-impl Visitor<()> for IdVisitor {
+impl<'self, O: IdVisitingOperation> Visitor<()> for IdVisitor<'self, O> {
     fn visit_mod(&mut self,
                  module: &_mod,
                  _: Span,
@@ -598,13 +588,21 @@ impl Visitor<()> for IdVisitor {
                         id: NodeId,
                         _: ()) {
         self.operation.visit_id(id);
-        struct_def.ctor_id.map(|&ctor_id| self.operation.visit_id(ctor_id));
+        struct_def.ctor_id.map(|ctor_id| self.operation.visit_id(ctor_id));
         visit::walk_struct_def(self, struct_def, ident, generics, id, ());
+    }
+
+    fn visit_trait_method(&mut self, tm: &ast::trait_method, _: ()) {
+        match *tm {
+            ast::required(ref m) => self.operation.visit_id(m.id),
+            ast::provided(ref m) => self.operation.visit_id(m.id),
+        }
+        visit::walk_trait_method(self, tm, ());
     }
 }
 
-pub fn visit_ids_for_inlined_item(item: &inlined_item,
-                                  operation: @IdVisitingOperation) {
+pub fn visit_ids_for_inlined_item<O: IdVisitingOperation>(item: &inlined_item,
+                                                          operation: &O) {
     let mut id_visitor = IdVisitor {
         operation: operation,
         pass_through_items: true,
@@ -623,16 +621,12 @@ impl IdVisitingOperation for IdRangeComputingVisitor {
     }
 }
 
-pub fn compute_id_range(visit_ids_fn: &fn(@IdVisitingOperation)) -> id_range {
-    let result = @mut id_range::max();
-    visit_ids_fn(@IdRangeComputingVisitor {
-        result: result,
-    } as @IdVisitingOperation);
-    *result
-}
-
 pub fn compute_id_range_for_inlined_item(item: &inlined_item) -> id_range {
-    compute_id_range(|f| visit_ids_for_inlined_item(item, f))
+    let result = @mut id_range::max();
+    visit_ids_for_inlined_item(item, &IdRangeComputingVisitor {
+        result: result,
+    });
+    *result
 }
 
 pub fn is_item_impl(item: @ast::item) -> bool {
@@ -706,32 +700,6 @@ pub fn view_path_id(p: &view_path) -> NodeId {
 /// are unnamed.
 pub fn struct_def_is_tuple_like(struct_def: &ast::struct_def) -> bool {
     struct_def.ctor_id.is_some()
-}
-
-pub fn visibility_to_privacy(visibility: visibility) -> Privacy {
-    match visibility {
-        public => Public,
-        inherited | private => Private
-    }
-}
-
-pub fn variant_visibility_to_privacy(visibility: visibility,
-                                     enclosing_is_public: bool)
-                                  -> Privacy {
-    if enclosing_is_public {
-        match visibility {
-            public | inherited => Public,
-            private => Private
-        }
-    } else {
-        visibility_to_privacy(visibility)
-    }
-}
-
-#[deriving(Eq)]
-pub enum Privacy {
-    Private,
-    Public
 }
 
 /// Returns true if the given pattern consists solely of an identifier
@@ -815,7 +783,7 @@ pub fn new_sctable_internal() -> SCTable {
 // fetch the SCTable from TLS, create one if it doesn't yet exist.
 pub fn get_sctable() -> @mut SCTable {
     local_data_key!(sctable_key: @@mut SCTable)
-    match local_data::get(sctable_key, |k| k.map_move(|k| *k)) {
+    match local_data::get(sctable_key, |k| k.map(|k| *k)) {
         None => {
             let new_table = @@mut new_sctable_internal();
             local_data::set(sctable_key,new_table);
@@ -852,7 +820,7 @@ pub type ResolveTable = HashMap<(Name,SyntaxContext),Name>;
 // fetch the SCTable from TLS, create one if it doesn't yet exist.
 pub fn get_resolve_table() -> @mut ResolveTable {
     local_data_key!(resolve_table_key: @@mut ResolveTable)
-    match local_data::get(resolve_table_key, |k| k.map(|&k| *k)) {
+    match local_data::get(resolve_table_key, |k| k.map(|k| *k)) {
         None => {
             let new_table = @@mut HashMap::new();
             local_data::set(resolve_table_key,new_table);
@@ -996,7 +964,7 @@ mod test {
     use super::*;
     use std::io;
     use opt_vec;
-    use std::hash::HashMap;
+    use std::hashmap::HashMap;
 
     fn ident_to_segment(id : &Ident) -> PathSegment {
         PathSegment{identifier:id.clone(), lifetime: None, types: opt_vec::Empty}

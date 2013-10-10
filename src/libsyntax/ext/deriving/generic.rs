@@ -361,7 +361,7 @@ impl<'self> TraitDef<'self> {
             span,
             cx.meta_name_value(span,
                                @"doc",
-                               ast::lit_str(@"Automatically derived.")));
+                               ast::lit_str(@"Automatically derived.", ast::CookedStr)));
         cx.item(
             span,
             ::parse::token::special_idents::clownshoes_extensions,
@@ -1151,6 +1151,7 @@ pub fn cs_or(enum_nonmatch_f: EnumNonMatchFunc,
              enum_nonmatch_f,
              cx, span, substructure)
 }
+
 /// cs_binop with binop == and
 #[inline]
 pub fn cs_and(enum_nonmatch_f: EnumNonMatchFunc,

@@ -33,6 +33,7 @@ use rt::context::Context;
 use unstable::finally::Finally;
 use task::spawn::Taskgroup;
 use cell::Cell;
+use send_str::SendStr;
 
 // The Task struct represents all state associated with a rust
 // task. There are at this point two primary "subtypes" of task,
@@ -49,8 +50,7 @@ pub struct Task {
     taskgroup: Option<Taskgroup>,
     death: Death,
     destroyed: bool,
-    // FIXME(#6874/#7599) use StringRef to save on allocations
-    name: Option<~str>,
+    name: Option<SendStr>,
     coroutine: Option<Coroutine>,
     sched: Option<~Scheduler>,
     task_type: TaskType,
@@ -485,10 +485,10 @@ mod test {
         do run_in_newsched_task() {
             local_data_key!(key: @~str)
             local_data::set(key, @~"data");
-            assert!(*local_data::get(key, |k| k.map_move(|k| *k)).unwrap() == ~"data");
+            assert!(*local_data::get(key, |k| k.map(|k| *k)).unwrap() == ~"data");
             local_data_key!(key2: @~str)
             local_data::set(key2, @~"data");
-            assert!(*local_data::get(key2, |k| k.map_move(|k| *k)).unwrap() == ~"data");
+            assert!(*local_data::get(key2, |k| k.map(|k| *k)).unwrap() == ~"data");
         }
     }
 
@@ -509,7 +509,7 @@ mod test {
         do run_in_newsched_task() {
             use rand::{rng, Rng};
             let mut r = rng();
-            let _ = r.next();
+            let _ = r.next_u32();
         }
     }
 

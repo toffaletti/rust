@@ -119,6 +119,7 @@ use back::link;
 use lib::llvm::{ValueRef, llvm, SetLinkage, False};
 use lib;
 use metadata::csearch;
+use metadata::cstore;
 use middle::trans::_match;
 use middle::trans::adt;
 use middle::trans::asm;
@@ -705,7 +706,7 @@ fn trans_rvalue_dps_unadjusted(bcx: @mut Block, expr: &ast::Expr,
                 args.iter().enumerate().map(|(i, arg)| (i, *arg)).collect();
             return trans_adt(bcx, repr, 0, numbered_fields, None, dest);
         }
-        ast::ExprLit(@codemap::Spanned {node: ast::lit_str(s), _}) => {
+        ast::ExprLit(@codemap::Spanned {node: ast::lit_str(s, _), _}) => {
             return tvec::trans_lit_str(bcx, expr, s, dest);
         }
         ast::ExprVstore(contents, ast::ExprVstoreSlice) |
@@ -1026,7 +1027,7 @@ fn trans_lvalue_unadjusted(bcx: @mut Block, expr: &ast::Expr) -> DatumBlock {
                         // which may not be equal to the enum's type for
                         // non-C-like enums.
                         let val = base::get_item_val(bcx.ccx(), did.node);
-                        let pty = type_of(bcx.ccx(), const_ty).ptr_to();
+                        let pty = type_of::type_of(bcx.ccx(), const_ty).ptr_to();
                         PointerCast(bcx, val, pty)
                     } else {
                         {
@@ -1040,7 +1041,7 @@ fn trans_lvalue_unadjusted(bcx: @mut Block, expr: &ast::Expr) -> DatumBlock {
                         }
 
                         unsafe {
-                            let llty = type_of(bcx.ccx(), const_ty);
+                            let llty = type_of::type_of(bcx.ccx(), const_ty);
                             let symbol = csearch::get_symbol(
                                 bcx.ccx().sess.cstore,
                                 did);
@@ -1396,7 +1397,7 @@ fn trans_unary_datum(bcx: @mut Block,
                         heap: heap) -> DatumBlock {
         let _icx = push_ctxt("trans_boxed_expr");
         if heap == heap_exchange {
-            let llty = type_of(bcx.ccx(), contents_ty);
+            let llty = type_of::type_of(bcx.ccx(), contents_ty);
             let size = llsize_of(bcx.ccx(), llty);
             let Result { bcx: bcx, val: val } = malloc_raw_dyn(bcx, contents_ty,
                                                                heap_exchange, size);
@@ -1727,7 +1728,9 @@ fn trans_imm_cast(bcx: @mut Block, expr: &ast::Expr,
             (cast_enum, cast_float) => {
                 let bcx = bcx;
                 let repr = adt::represent_type(ccx, t_in);
-                let lldiscrim_a = adt::trans_get_discr(bcx, repr, llexpr);
+                let slot = Alloca(bcx, ll_t_in, "");
+                Store(bcx, llexpr, slot);
+                let lldiscrim_a = adt::trans_get_discr(bcx, repr, slot);
                 match k_out {
                     cast_integral => int_cast(bcx, ll_t_out,
                                               val_ty(lldiscrim_a),
@@ -1797,9 +1800,14 @@ pub fn trans_log_level(bcx: @mut Block) -> DatumBlock {
     let ccx = bcx.ccx();
 
     let (modpath, modname) = {
-        let path = &mut bcx.fcx.path;
-        let mut modpath = ~[path_mod(ccx.sess.ident_of(ccx.link_meta.name))];
-        for e in path.iter() {
+        let srccrate = match ccx.external_srcs.find(&bcx.fcx.id) {
+            Some(&src) => {
+                cstore::get_crate_data(ccx.sess.cstore, src.crate).name
+            }
+            None => ccx.link_meta.name,
+        };
+        let mut modpath = ~[path_mod(ccx.sess.ident_of(srccrate))];
+        for e in bcx.fcx.path.iter() {
             match *e {
                 path_mod(_) => { modpath.push(*e) }
                 _ => {}

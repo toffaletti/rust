@@ -69,13 +69,8 @@ pub fn type_is_immediate(ccx: &mut CrateContext, ty: ty::t) -> bool {
     if simple {
         return true;
     }
-    // FIXME: #9651: C-like enums should also be immediate
-    if ty::type_is_c_like_enum(ccx.tcx, ty) {
-        return false;
-    }
     match ty::get(ty).sty {
-        // FIXME: #9651: small `ty_struct` should also be immediate
-        ty::ty_enum(*) | ty::ty_tup(*) => {
+        ty::ty_struct(*) | ty::ty_enum(*) | ty::ty_tup(*) => {
             let llty = sizing_type_of(ccx, ty);
             llsize_of_alloc(ccx, llty) <= llsize_of_alloc(ccx, ccx.int_type)
         }
@@ -639,7 +634,7 @@ impl get_node_info for ast::Block {
 
 impl get_node_info for Option<@ast::Expr> {
     fn info(&self) -> Option<NodeInfo> {
-        self.and_then_ref(|s| s.info())
+        self.as_ref().and_then(|s| s.info())
     }
 }
 
@@ -1150,7 +1145,7 @@ pub fn node_id_type_params(bcx: &mut Block, id: ast::NodeId) -> ~[ty::t] {
 pub fn node_vtables(bcx: @mut Block, id: ast::NodeId)
                  -> Option<typeck::vtable_res> {
     let raw_vtables = bcx.ccx().maps.vtable_map.find(&id);
-    raw_vtables.map_move(|vts| resolve_vtables_in_fn_ctxt(bcx.fcx, *vts))
+    raw_vtables.map(|vts| resolve_vtables_in_fn_ctxt(bcx.fcx, *vts))
 }
 
 // Apply the typaram substitutions in the FunctionContext to some

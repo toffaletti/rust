@@ -77,7 +77,7 @@ pub fn llvm_calling_convention(ccx: &mut CrateContext,
                                abis: AbiSet) -> Option<CallConv> {
     let arch = ccx.sess.targ_cfg.arch;
     abis.for_arch(arch).map(|abi| {
-        match *abi {
+        match abi {
             RustIntrinsic => {
                 // Intrinsics are emitted by monomorphic fn
                 ccx.sess.bug(format!("Asked to register intrinsic fn"));
@@ -222,7 +222,7 @@ pub fn trans_native_call(bcx: @mut Block,
         // Ensure that we always have the Rust value indirectly,
         // because it makes bitcasting easier.
         if !rust_indirect {
-            let scratch = base::alloca(bcx, arg_tys[i].ty, "__arg");
+            let scratch = base::alloca(bcx, type_of::type_of(ccx, fn_sig.inputs[i]), "__arg");
             Store(bcx, llarg_rust, scratch);
             llarg_rust = scratch;
         }

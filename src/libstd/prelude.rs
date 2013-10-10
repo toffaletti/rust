@@ -39,7 +39,7 @@ pub use option::{Option, Some, None};
 pub use result::{Result, Ok, Err};
 
 // Reexported functions
-pub use io::{print, println};
+pub use rt::io::stdio::{print, println};
 pub use iter::range;
 pub use from_str::from_str;
 
@@ -59,7 +59,7 @@ pub use num::{Orderable, Signed, Unsigned, Round};
 pub use num::{Algebraic, Trigonometric, Exponential, Hyperbolic};
 pub use num::{Integer, Fractional, Real, RealExt};
 pub use num::{Bitwise, BitCount, Bounded};
-pub use num::{Primitive, Int, Float, ToStrRadix};
+pub use num::{Primitive, Int, Float, ToStrRadix, ToPrimitive, FromPrimitive};
 pub use path::GenericPath;
 pub use path::Path;
 pub use path::PosixPath;

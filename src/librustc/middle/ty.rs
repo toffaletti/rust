@@ -290,7 +290,6 @@ struct ctxt_ {
     freevars: freevars::freevar_map,
     tcache: type_cache,
     rcache: creader_cache,
-    ccache: constness_cache,
     short_names_cache: @mut HashMap<t, @str>,
     needs_unwind_cleanup_cache: @mut HashMap<t, bool>,
     tc_cache: @mut HashMap<uint, TypeContents>,
@@ -346,6 +345,11 @@ struct ctxt_ {
     // The set of external traits whose implementations have been read. This
     // is used for lazy resolution of traits.
     populated_external_traits: @mut HashSet<ast::DefId>,
+
+    // These two caches are used by const_eval when decoding external statics
+    // and variants that are found.
+    extern_const_statics: @mut HashMap<ast::DefId, Option<@ast::Expr>>,
+    extern_const_variants: @mut HashMap<ast::DefId, Option<@ast::Expr>>,
 }
 
 pub enum tbox_flag {
@@ -897,8 +901,6 @@ pub struct ty_param_substs_and_ty {
 
 type type_cache = @mut HashMap<ast::DefId, ty_param_bounds_and_ty>;
 
-type constness_cache = @mut HashMap<ast::DefId, const_eval::constness>;
-
 pub type node_type_table = @mut HashMap<uint,t>;
 
 fn mk_rcache() -> creader_cache {
@@ -935,7 +937,6 @@ pub fn mk_ctxt(s: session::Session,
         freevars: freevars,
         tcache: @mut HashMap::new(),
         rcache: mk_rcache(),
-        ccache: @mut HashMap::new(),
         short_names_cache: new_ty_hash(),
         needs_unwind_cleanup_cache: new_ty_hash(),
         tc_cache: @mut HashMap::new(),
@@ -961,6 +962,9 @@ pub fn mk_ctxt(s: session::Session,
         impl_vtables: @mut HashMap::new(),
         populated_external_types: @mut HashSet::new(),
         populated_external_traits: @mut HashSet::new(),
+
+        extern_const_statics: @mut HashMap::new(),
+        extern_const_variants: @mut HashMap::new(),
      }
 }
 
@@ -1345,7 +1349,7 @@ pub fn fold_bare_fn_ty(fty: &BareFnTy, fldop: &fn(t) -> t) -> BareFnTy {
 fn fold_sty(sty: &sty, fldop: &fn(t) -> t) -> sty {
     fn fold_substs(substs: &substs, fldop: &fn(t) -> t) -> substs {
         substs {regions: substs.regions.clone(),
-                self_ty: substs.self_ty.map(|t| fldop(*t)),
+                self_ty: substs.self_ty.map(|t| fldop(t)),
                 tps: substs.tps.map(|t| fldop(*t))}
     }
 
@@ -1445,7 +1449,7 @@ pub fn fold_regions_and_ty(
 
         substs {
             regions: regions,
-            self_ty: substs.self_ty.map(|t| fldt(*t)),
+            self_ty: substs.self_ty.map(|t| fldt(t)),
             tps: substs.tps.map(|t| fldt(*t))
         }
     }
@@ -3262,7 +3266,7 @@ pub fn expr_kind(tcx: ctxt,
         ast::ExprDoBody(*) |
         ast::ExprBlock(*) |
         ast::ExprRepeat(*) |
-        ast::ExprLit(@codemap::Spanned {node: lit_str(_), _}) |
+        ast::ExprLit(@codemap::Spanned {node: lit_str(*), _}) |
         ast::ExprVstore(_, ast::ExprVstoreSlice) |
         ast::ExprVstore(_, ast::ExprVstoreMutSlice) |
         ast::ExprVec(*) => {
@@ -3615,7 +3619,7 @@ pub fn def_has_ty_params(def: ast::Def) -> bool {
 }
 
 pub fn provided_source(cx: ctxt, id: ast::DefId) -> Option<ast::DefId> {
-    cx.provided_method_sources.find(&id).map_move(|x| *x)
+    cx.provided_method_sources.find(&id).map(|x| *x)
 }
 
 pub fn provided_trait_methods(cx: ctxt, id: ast::DefId) -> ~[@Method] {
@@ -3787,7 +3791,7 @@ fn struct_ctor_id(cx: ctxt, struct_did: ast::DefId) -> Option<ast::DefId> {
         Some(&ast_map::node_item(item, _)) => {
             match item.node {
                 ast::item_struct(struct_def, _) => {
-                    do struct_def.ctor_id.map_move |ctor_id| {
+                    do struct_def.ctor_id.map |ctor_id| {
                         ast_util::local_def(ctor_id)
                     }
                 }

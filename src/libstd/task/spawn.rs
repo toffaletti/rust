@@ -89,11 +89,8 @@ use unstable::sync::Exclusive;
 use rt::in_green_task_context;
 use rt::local::Local;
 use rt::task::{Task, Sched};
-use rt::kill::KillHandle;
-use rt::sched::Scheduler;
+use rt::shouldnt_be_public::{Scheduler, KillHandle, WorkQueue, Thread};
 use rt::uv::uvio::UvEventLoop;
-use rt::thread::Thread;
-use rt::work_queue::WorkQueue;
 
 #[cfg(test)] use task::default_task_opts;
 #[cfg(test)] use comm;
@@ -185,7 +182,7 @@ fn check_generation(_younger: uint, _older: uint) { }
 
 #[inline] #[cfg(test)]
 fn incr_generation(ancestors: &AncestorList) -> uint {
-    ancestors.map_default(0, |arc| access_ancestors(arc, |a| a.generation+1))
+    ancestors.as_ref().map_default(0, |arc| access_ancestors(arc, |a| a.generation+1))
 }
 #[inline] #[cfg(not(test))]
 fn incr_generation(_ancestors: &AncestorList) -> uint { 0 }
@@ -246,7 +243,7 @@ fn each_ancestor(list:        &mut AncestorList,
 
         // The map defaults to None, because if ancestors is None, we're at
         // the end of the list, which doesn't make sense to coalesce.
-        do ancestors.map_default((None,false)) |ancestor_arc| {
+        do ancestors.as_ref().map_default((None,false)) |ancestor_arc| {
             // NB: Takes a lock! (this ancestor node)
             do access_ancestors(ancestor_arc) |nobe| {
                 // Argh, but we couldn't give it to coalesce() otherwise.
@@ -389,7 +386,7 @@ fn enlist_in_taskgroup(state: TaskGroupInner, me: KillHandle,
                            is_member: bool) -> bool {
     let me = Cell::new(me); // :(
     // If 'None', the group was failing. Can't enlist.
-    do state.map_mut_default(false) |group| {
+    do state.as_mut().map_default(false) |group| {
         (if is_member {
             &mut group.members
         } else {
@@ -403,7 +400,7 @@ fn enlist_in_taskgroup(state: TaskGroupInner, me: KillHandle,
 fn leave_taskgroup(state: TaskGroupInner, me: &KillHandle, is_member: bool) {
     let me = Cell::new(me); // :(
     // If 'None', already failing and we've already gotten a kill signal.
-    do state.map_mut |group| {
+    do state.as_mut().map |group| {
         (if is_member {
             &mut group.members
         } else {
@@ -417,7 +414,7 @@ fn kill_taskgroup(state: Option<TaskGroupData>, me: &KillHandle) {
     // Might already be None, if somebody is failing simultaneously.
     // That's ok; only one task needs to do the dirty work. (Might also
     // see 'None' if somebody already failed and we got a kill signal.)
-    do state.map_move |TaskGroupData { members: members, descendants: descendants }| {
+    do state.map |TaskGroupData { members: members, descendants: descendants }| {
         for sibling in members.move_iter() {
             // Skip self - killing ourself won't do much good.
             if &sibling != me {
@@ -442,7 +439,7 @@ fn taskgroup_key() -> local_data::Key<@@mut Taskgroup> {
 struct RuntimeGlue;
 impl RuntimeGlue {
     fn kill_task(mut handle: KillHandle) {
-        do handle.kill().map_move |killed_task| {
+        do handle.kill().map |killed_task| {
             let killed_task = Cell::new(killed_task);
             do Local::borrow |sched: &mut Scheduler| {
                 sched.enqueue_task(killed_task.take());
@@ -494,7 +491,7 @@ fn gen_child_taskgroup(linked: bool, supervised: bool)
         // with_my_taskgroup will lazily initialize the parent's taskgroup if
         // it doesn't yet exist. We don't want to call it in the unlinked case.
         do RuntimeGlue::with_my_taskgroup |spawner_group| {
-            let ancestors = AncestorList(spawner_group.ancestors.map(|x| x.clone()));
+            let ancestors = AncestorList(spawner_group.ancestors.as_ref().map(|x| x.clone()));
             if linked {
                 // Child is in the same group as spawner.
                 // Child's ancestors are spawner's ancestors.
@@ -556,8 +553,6 @@ fn enlist_many(child: &KillHandle, child_arc: &TaskGroupArc,
 }
 
 pub fn spawn_raw(mut opts: TaskOpts, f: ~fn()) {
-    use rt::sched::*;
-
     rtassert!(in_green_task_context());
 
     let child_data = Cell::new(gen_child_taskgroup(opts.linked, opts.supervised));
@@ -567,7 +562,7 @@ pub fn spawn_raw(mut opts: TaskOpts, f: ~fn()) {
         // Child task runs this code.
 
         // If child data is 'None', the enlist is vacuously successful.
-        let enlist_success = do child_data.take().map_move_default(true) |child_data| {
+        let enlist_success = do child_data.take().map_default(true) |child_data| {
             let child_data = Cell::new(child_data); // :(
             do Local::borrow |me: &mut Task| {
                 let (child_tg, ancestors) = child_data.take();
@@ -622,7 +617,7 @@ pub fn spawn_raw(mut opts: TaskOpts, f: ~fn()) {
             let mut new_sched_handle = new_sched.make_handle();
 
             // Allow the scheduler to exit when the pinned task exits
-            new_sched_handle.send(Shutdown);
+            new_sched_handle.send_shutdown();
 
             // Pin the new task to the new scheduler
             let new_task = if opts.watched {
@@ -660,7 +655,7 @@ pub fn spawn_raw(mut opts: TaskOpts, f: ~fn()) {
                 rtdebug!("enqueing join_task");
                 // Now tell the original scheduler to join with this thread
                 // by scheduling a thread-joining task on the original scheduler
-                orig_sched_handle.send(TaskFromFriend(join_task));
+                orig_sched_handle.send_task_from_friend(join_task);
 
                 // NB: We can't simply send a message from here to another task
                 // because this code isn't running in a task and message passing doesn't
